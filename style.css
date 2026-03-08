@@ -11,11 +11,29 @@ body { font-family: 'Pretendard', sans-serif; }
     justify-content: center;
     transition: all 0.1s;
     font-size: 0.9rem;
+    line-height: 1.2;
     padding: 0 0.4rem;
+}
+.toolbar-btn .katex { font-size: 1em; }
+.toolbar-btn.text-xs {
+    font-size: 0.9rem;
+    line-height: 1.2;
 }
 .toolbar-btn:active { transform: translateY(1px); background-color: #e5e7eb; }
 .toolbar-btn:hover { background-color: #f3f4f6; border-color: #9ca3af; }
-
+.focus-indicator {
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.focus-indicator.mode-text {
+    color: #2563eb;
+    background-color: #eff6ff;
+    border-color: #bfdbfe;
+}
+.focus-indicator.mode-answer {
+    color: #b45309;
+    background-color: #fffbeb;
+    border-color: #fde68a;
+}
 .tab-btn { transition: all 0.2s; white-space: nowrap; }
 .tab-btn.active {
     color: #2563EB;
@@ -24,6 +42,7 @@ body { font-family: 'Pretendard', sans-serif; }
     font-weight: 600;
 }
 
+.toolbar-scroll { max-height: 12.5rem; }
 .toolbar-scroll::-webkit-scrollbar { height: 6px; }
 .toolbar-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 
@@ -493,6 +512,16 @@ input:focus, textarea:focus {
 }
 .btn-secondary:hover { background-color: #f9fafb; border-color: #9ca3af; }
 .btn-secondary:active { transform: translateY(1px); }
+
+.btn-guide {
+    background-color: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+}
+.btn-guide:hover {
+    background-color: #dbeafe;
+    border-color: #93c5fd;
+}
 
 .btn-danger {
     background-color: white;

@@ -51,7 +51,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==" crossorigin="anonymous"></script>
 
     <!-- App Styles -->
-    <link rel="stylesheet" href="style.css?v=5">
+    <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body class="bg-gray-50 text-gray-800 p-4 md:p-8">
     <div class="max-w-screen-2xl mx-auto">
@@ -59,7 +59,7 @@
         <header class="mb-6 space-y-2">
             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span class="text-base font-semibold text-gray-900">문제 JSON 편집기</span>
-                <span class="text-[12px] text-gray-500">260307</span>
+                <span class="text-[12px] text-gray-500">260308</span>
                 <span class="text-xs text-gray-500">
                     <a href="https://sites.google.com/view/jiyongparkphysics" target="_blank" rel="noopener noreferrer" class="underline decoration-gray-300 underline-offset-2 hover:text-gray-700">박지용 교수</a>
                     개발 · AI 보조 사용
@@ -92,6 +92,7 @@
                 <button id="save-btn" class="btn-primary py-2 px-3 sm:px-4 text-sm disabled:bg-gray-400 disabled:cursor-not-allowed disabled:border-transparent">&#128190;<span class="header-btn-label"> 저장하기</span></button>
                 <button id="preview-all-btn" class="btn-secondary py-2 px-3 sm:px-4 text-sm">&#128065;<span class="header-btn-label"> 미리보기</span></button>
                 <div class="flex-1"></div>
+                <a id="user-guide-btn" href="USER_GUIDE.md" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-guide py-2 px-3 sm:px-4 text-sm">&#128214;<span class="header-btn-label"> 사용자 가이드</span></a>
                 <span class="text-sm text-gray-700">문항:</span>
                 <div class="tree-dropdown" id="question-tree-wrap">
                     <button type="button" id="question-tree-btn" class="tree-dropdown-btn">
@@ -134,35 +135,37 @@
                 <!-- ===== LaTeX Toolbar (ported) ===== -->
                 <div class="border border-gray-200 rounded-md bg-gray-50 flex-none flex flex-col">
                     <div class="flex justify-between items-center border-b border-gray-200 bg-white px-1 overflow-x-auto">
-                        <div class="flex text-xs font-semibold text-gray-500">
-                            <button type="button" class="tab-btn active px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="basic">기본</button>
-                            <button type="button" class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="greek">그리스</button>
-                            <button type="button" class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="fonts">글꼴/기호</button>
-                            <button type="button" class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="operators">연산</button>
-                            <button type="button" class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="functions">함수</button>
+                        <div id="toolbar-tablist" class="flex text-xs font-semibold text-gray-500" role="tablist" aria-label="LaTeX 툴바 탭">
+                            <button id="toolbar-tab-basic" type="button" class="tab-btn active px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="basic" role="tab" aria-selected="true" aria-controls="toolbar-basic" tabindex="0">기본</button>
+                            <button id="toolbar-tab-greek" type="button" class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="greek" role="tab" aria-selected="false" aria-controls="toolbar-greek" tabindex="-1">그리스</button>
+                            <button id="toolbar-tab-fonts" type="button" class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="fonts" role="tab" aria-selected="false" aria-controls="toolbar-fonts" tabindex="-1">글꼴/기호</button>
+                            <button id="toolbar-tab-operators" type="button" class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="operators" role="tab" aria-selected="false" aria-controls="toolbar-operators" tabindex="-1">연산</button>
+                            <button id="toolbar-tab-functions" type="button" class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="functions" role="tab" aria-selected="false" aria-controls="toolbar-functions" tabindex="-1">함수</button>
+                            <button id="toolbar-tab-functionParen" type="button" class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-blue-600" data-tab="functionParen" role="tab" aria-selected="false" aria-controls="toolbar-functionParen" tabindex="-1">함수 괄호</button>
                         </div>
-                        <div id="focus-indicator" class="flex-none mr-2 text-[11px] text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded border border-blue-100 shadow-sm whitespace-nowrap">
+                        <div id="focus-indicator" class="focus-indicator mode-text flex-none mr-2 text-[11px] font-bold px-2 py-1 rounded border shadow-sm whitespace-nowrap">
                             입력 대상: 지문
                         </div>
                     </div>
-
-                    <div class="p-2 max-h-50 overflow-y-auto toolbar-scroll">
-                        <!-- Toolbar contents are rendered dynamically by renderAllToolbars() from TOOLBAR_DEF -->
-                        <div id="toolbar-basic" class="toolbar-content"></div>
-                        <div id="toolbar-greek" class="toolbar-content hidden"></div>
-                        <div id="toolbar-fonts" class="toolbar-content hidden"></div>
-                        <div id="toolbar-operators" class="toolbar-content hidden"></div>
-                        <div id="toolbar-functions" class="toolbar-content hidden"></div>
+                    <div id="toolbar-action-hint" class="hidden px-2 py-1 text-[11px] text-amber-700 bg-amber-50 border-b border-amber-100" aria-live="polite"></div>
+                    <div class="p-2 overflow-y-auto toolbar-scroll">
+                        <!-- Toolbar contents are rendered dynamically from toolbar-config.js -->
+                        <div id="toolbar-basic" class="toolbar-content" role="tabpanel" aria-labelledby="toolbar-tab-basic"></div>
+                        <div id="toolbar-greek" class="toolbar-content hidden" role="tabpanel" aria-labelledby="toolbar-tab-greek" hidden></div>
+                        <div id="toolbar-fonts" class="toolbar-content hidden" role="tabpanel" aria-labelledby="toolbar-tab-fonts" hidden></div>
+                        <div id="toolbar-operators" class="toolbar-content hidden" role="tabpanel" aria-labelledby="toolbar-tab-operators" hidden></div>
+                        <div id="toolbar-functions" class="toolbar-content hidden" role="tabpanel" aria-labelledby="toolbar-tab-functions" hidden></div>
+                        <div id="toolbar-functionParen" class="toolbar-content hidden" role="tabpanel" aria-labelledby="toolbar-tab-functionParen" hidden></div>
                     </div>
                 </div>
                 <!-- ===== /LaTeX Toolbar ===== -->
 
                 <div>
-                    <label for="text" class="block text-sm font-medium text-gray-700">지문 <span class="text-xs text-gray-400">(변수는 *var* 형식)</span></label>
+                    <label for="text" class="block text-sm font-medium text-gray-700">지문 <span class="text-xs text-gray-400">(변수는 *var* 형식, 미리보기 강조는 $...$ 또는 $$...$$ 안에서)</span></label>
                     <textarea id="text" rows="8" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 font-mono" placeholder="예: 전하량 $q_{1} = *a*$ C ..."></textarea>
                 </div>
                 <div>
-                    <label for="answer" class="block text-sm font-medium text-gray-700">정답식</label>
+                    <label for="answer" class="block text-sm font-medium text-gray-700">정답식 <span class="text-xs text-gray-400">(수식만 입력: $...$ 또는 $$...$$ 사용 안 함)</span></label>
                     <textarea id="answer" rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 font-mono" placeholder="예: \frac{kq_{1}q_{2}}{r^{2}}"></textarea>
                 </div>
                 <div id="variables-section">
@@ -225,7 +228,9 @@
                     </div>
                 </div>
                 <!-- 에러 표시 -->
-                <div id="validation-errors" class="hidden p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg"></div>
+                <div id="validation-errors" class="hidden p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg" role="status" aria-live="polite" aria-atomic="true"></div>
+                <!-- 오류 상태에서 다른 문항 경고 요약 표시 -->
+                <div id="validation-warnings" class="hidden mt-2 p-3 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg text-sm" role="status" aria-live="polite" aria-atomic="true"></div>
             </section>
         </main>
         <div id="third-party-notices-link" class="mt-3 text-[11px] text-gray-500 text-right">
@@ -317,7 +322,17 @@
         </div>
     </div>
 
+    <!-- Compatibility Logic -->
+    <script src="compat/shared.js?v=1"></script>
+    <script src="compat/text.js?v=2"></script>
+    <script src="compat/answer.js?v=1"></script>
+    <script src="random-exam-compat.js?v=17"></script>
+
+    <!-- Toolbar Modules -->
+    <script src="toolbar-config.js?v=4"></script>
+    <script src="toolbar-ui.js?v=1"></script>
+
     <!-- App Script -->
-    <script src="app.js?v=5"></script>
+    <script src="app.js?v=18"></script>
 </body>
 </html>

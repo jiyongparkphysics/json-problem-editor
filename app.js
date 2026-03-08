@@ -14,7 +14,25 @@
         // =============================
         const toolbarState = { lastFocusedInputId: 'text' };
 
+        const _getToolbarUiApi = () => {
+            if (typeof window === 'undefined') return null;
+            const uiApi = window.ToolbarUI;
+            if (!uiApi || typeof uiApi !== 'object') return null;
+            return uiApi;
+        };
+        const _getToolbarConfigApi = () => {
+            if (typeof window === 'undefined') return null;
+            const configApi = window.ToolbarConfig;
+            if (!configApi || typeof configApi !== 'object') return null;
+            return configApi;
+        };
+
         function setActiveTab(tabName) {
+            const uiApi = _getToolbarUiApi();
+            if (uiApi && typeof uiApi.setActiveTab === 'function') {
+                uiApi.setActiveTab(tabName);
+                return;
+            }
             document.querySelectorAll('.tab-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.tab === tabName);
             });
@@ -25,370 +43,16 @@
             if (pane) pane.classList.remove('hidden');
         }
 
-
-        // ===== Data-driven LaTeX toolbar (no behavior changes) =====
-        // Button actions:
-        // - wrap: inserts prefix + (selection) + suffix, cursor positioning depends on selection state
-        // - cmd: inserts \command + tail, selection (if any) remains after inserted text (same as legacy)
-        // - tpl: inserts raw template, selection (if any) remains after inserted text (same as legacy)
-        //
-        // Cursor positioning:
-        // - For cmd/tpl, cursor uses a marker '|' in the template and is converted to legacy move-offset
-        //   so selection-length behavior stays identical to the original insertAtCursor(move) logic.
-
-        const TOOLBAR_BTN_BASE_CLASS = 'toolbar-btn bg-white border rounded hover:bg-gray-100';
-
-        function mkInlineLabel(text) {
-            const div = document.createElement('div');
-            div.className = 'tb-label';
-            div.textContent = text;
-            return div;
-        }
-
-function mkInlineDivider() {
-            const d = document.createElement('div');
-            d.className = 'tb-divider';
-            return d;
-        }
-
-// Convert marker-template to (textWithoutMarker, moveFromEnd) to preserve legacy behavior.
         function splitMarkerToLegacyMove(strWithMarker) {
-            const idx = strWithMarker.indexOf('|');
-            if (idx === -1) return { text: strWithMarker, move: 0 };
+            const uiApi = _getToolbarUiApi();
+            if (uiApi && typeof uiApi.splitMarkerToLegacyMove === 'function') {
+                return uiApi.splitMarkerToLegacyMove(strWithMarker);
+            }
+            const idx = String(strWithMarker || '').indexOf('|');
+            if (idx === -1) return { text: String(strWithMarker || ''), move: 0 };
             const text = strWithMarker.slice(0, idx) + strWithMarker.slice(idx + 1);
-            const move = idx - text.length; // legacy move (usually negative)
+            const move = idx - text.length;
             return { text, move };
-        }
-
-        function makeToolbarButton(cfg) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = TOOLBAR_BTN_BASE_CLASS + (cfg.cls ? (' ' + cfg.cls) : '');
-            if (cfg.title) btn.title = cfg.title;
-
-            if (cfg.kind === 'wrap') {
-                btn.dataset.action = 'wrap';
-                btn.dataset.prefix = cfg.prefix ?? '';
-                btn.dataset.suffix = cfg.suffix ?? '';
-                btn.dataset.cursorEmpty = cfg.cursorEmpty ?? 'inside';
-                btn.dataset.cursorSelected = cfg.cursorSelected ?? btn.dataset.cursorEmpty;
-            } else if (cfg.kind === 'cmd') {
-                btn.dataset.action = 'cmd';
-                btn.dataset.cmd = cfg.cmd ?? '';
-                // default tail: single trailing space (matches legacy buttons like \sin, \alpha)
-                btn.dataset.tail = (cfg.tail !== undefined) ? String(cfg.tail) : ' ';
-            } else if (cfg.kind === 'tpl') {
-                btn.dataset.action = 'tpl';
-                btn.dataset.tpl = cfg.tpl ?? '';
-            }
-
-            // Safe label rendering: use KaTeX render API instead of innerHTML
-            if (cfg.labelHtml !== undefined && cfg.labelHtml !== null) {
-                // Extract LaTeX between $ delimiters and render safely via KaTeX API
-                const latexMatch = cfg.labelHtml.match(/^\$(.+)\$$/);
-                if (latexMatch && window.katex) {
-                    try {
-                        katex.render(latexMatch[1], btn, { throwOnError: false });
-                    } catch (_) {
-                        btn.textContent = cfg.labelHtml;
-                    }
-                } else {
-                    btn.textContent = cfg.labelHtml;
-                }
-            } else {
-                btn.textContent = cfg.label ?? '';
-            }
-
-            // Accessibility: add aria-label for screen readers
-            const ariaText = cfg.title || cfg.label || cfg.cmd || cfg.tpl || '';
-            if (ariaText) btn.setAttribute('aria-label', ariaText);
-
-            return btn;
-        }
-
-        const TOOLBAR_DEF = {
-            basic: {
-                layout: 'groups',
-                groups: [
-                    {
-                        title: '수식 환경',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'wrap', label: 'var', cls: 'text-blue-600 font-bold', title: '변수명 입력', prefix: '*', suffix: '*', cursorEmpty: 'inside', cursorSelected: 'after' },
-                            { kind: 'wrap', label: '$', prefix: '$', suffix: '$', cursorEmpty: 'inside', cursorSelected: 'inside' },
-                            { kind: 'wrap', label: '$$', prefix: '$$', suffix: '$$', cursorEmpty: 'inside', cursorSelected: 'inside' },
-                        ],
-                    },
-                    {
-                        title: '분수/첨자/제곱근',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'frac', tail: '{|}{}', labelHtml: '$\\frac{a}{b}$' },
-                            { kind: 'tpl', tpl: '^{|}', labelHtml: '$x^n$' },
-                            { kind: 'tpl', tpl: '_{|}', labelHtml: '$x_n$' },
-                            { kind: 'cmd', cmd: 'sqrt', tail: '{|}', labelHtml: '$\\sqrt{x}$' },
-                        ],
-                    },
-                    {
-                        title: '괄호',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'tpl', tpl: '\\left( |\\right)', labelHtml: '$( )$' },
-                            { kind: 'tpl', tpl: '\\left\\{ |\\right\\}', labelHtml: '$\\{ \\}$' },
-                            { kind: 'tpl', tpl: '\\left[ |\\right]', labelHtml: '$[ ]$' },
-                        ],
-                    },
-                    {
-                        title: '상수/단위',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'pi', labelHtml: '$\\pi$' },
-                            { kind: 'tpl', tpl: '^{\\circ}', label: '°' },
-                            { kind: 'tpl', tpl: '^{\\prime}', label: '′' },
-                            { kind: 'tpl', tpl: '^{\\prime\\prime}', label: '″' },
-                            { kind: 'tpl', tpl: '\\%', label: '%' },
-                        ],
-                    },
-                ],
-            },
-            greek: {
-                layout: 'groups',
-                groups: [
-                    {
-                        title: '소문자',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'alpha', label: 'α' },
-                            { kind: 'cmd', cmd: 'beta', label: 'β' },
-                            { kind: 'cmd', cmd: 'gamma', label: 'γ' },
-                            { kind: 'cmd', cmd: 'delta', label: 'δ' },
-                            { kind: 'cmd', cmd: 'epsilon', label: 'ε' },
-                            { kind: 'cmd', cmd: 'zeta', label: 'ζ' },
-                            { kind: 'cmd', cmd: 'eta', label: 'η' },
-                            { kind: 'cmd', cmd: 'theta', label: 'θ' },
-                            { kind: 'cmd', cmd: 'iota', label: 'ι' },
-                            { kind: 'cmd', cmd: 'kappa', label: 'κ' },
-                            { kind: 'cmd', cmd: 'lambda', label: 'λ' },
-                            { kind: 'cmd', cmd: 'mu', label: 'μ' },
-                            { kind: 'cmd', cmd: 'nu', label: 'ν' },
-                            { kind: 'cmd', cmd: 'xi', label: 'ξ' },
-                            { kind: 'cmd', cmd: 'pi', label: 'π' },
-                            { kind: 'cmd', cmd: 'rho', label: 'ρ' },
-                            { kind: 'cmd', cmd: 'sigma', label: 'σ' },
-                            { kind: 'cmd', cmd: 'tau', label: 'τ' },
-                            { kind: 'cmd', cmd: 'upsilon', label: 'υ' },
-                            { kind: 'cmd', cmd: 'phi', label: 'φ' },
-                            { kind: 'cmd', cmd: 'chi', label: 'χ' },
-                            { kind: 'cmd', cmd: 'psi', label: 'ψ' },
-                            { kind: 'cmd', cmd: 'omega', label: 'ω' },
-                        ],
-                    },
-                    {
-                        title: '대문자',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'Gamma', label: 'Γ' },
-                            { kind: 'cmd', cmd: 'Delta', label: 'Δ' },
-                            { kind: 'cmd', cmd: 'Theta', label: 'Θ' },
-                            { kind: 'cmd', cmd: 'Lambda', label: 'Λ' },
-                            { kind: 'cmd', cmd: 'Xi', label: 'Ξ' },
-                            { kind: 'cmd', cmd: 'Pi', label: 'Π' },
-                            { kind: 'cmd', cmd: 'Sigma', label: 'Σ' },
-                            { kind: 'cmd', cmd: 'Upsilon', label: 'Υ' },
-                            { kind: 'cmd', cmd: 'Phi', label: 'Φ' },
-                            { kind: 'cmd', cmd: 'Psi', label: 'Ψ' },
-                            { kind: 'cmd', cmd: 'Omega', label: 'Ω' },
-                        ],
-                    },
-                ],
-            },
-            fonts: {
-                layout: 'groups',
-                groups: [
-                    {
-                        title: '서체',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'mathrm', tail: '{|}', cls: 'px-2 text-xs', labelHtml: '$\\mathrm{A}$' },
-                            { kind: 'cmd', cmd: 'mathbb', tail: '{|}', cls: 'px-2 text-xs', labelHtml: '$\\mathbb{A}$' },
-                            { kind: 'cmd', cmd: 'mathcal', tail: '{|}', cls: 'px-2 text-xs', labelHtml: '$\\mathcal{A}$' },
-                            { kind: 'cmd', cmd: 'mathbf', tail: '{|}', cls: 'px-2 text-xs', labelHtml: '$\\mathbf{A}$' },
-                        ],
-                    },
-                    {
-                        title: '장식',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'vec', tail: '{|}', cls: 'px-2 text-xs', labelHtml: '$\\vec{a}$' },
-                            { kind: 'cmd', cmd: 'hat', tail: '{|}', cls: 'px-2 text-xs', labelHtml: '$\\hat{a}$' },
-                            { kind: 'cmd', cmd: 'bar', tail: '{|}', cls: 'px-2 text-xs', labelHtml: '$\\bar{a}$' },
-                            { kind: 'cmd', cmd: 'dot', tail: '{|}', cls: 'px-2 text-xs', labelHtml: '$\\dot{a}$' },
-                            { kind: 'cmd', cmd: 'ddot', tail: '{|}', cls: 'px-2 text-xs', labelHtml: '$\\ddot{a}$' },
-                        ],
-                    },
-                    {
-                        title: '화살표',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'leftarrow', label: '←' },
-                            { kind: 'cmd', cmd: 'rightarrow', label: '→' },
-                            { kind: 'cmd', cmd: 'leftrightarrow', label: '↔' },
-                            { kind: 'cmd', cmd: 'Leftarrow', label: '⇐' },
-                            { kind: 'cmd', cmd: 'Rightarrow', label: '⇒' },
-                            { kind: 'cmd', cmd: 'Leftrightarrow', label: '⇔' },
-                        ],
-                    },
-                ],
-            },
-            operators: {
-                layout: 'groups',
-                groups: [
-                    {
-                        title: '사칙연산/관계',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'times', labelHtml: '$\\times$' },
-                            { kind: 'cmd', cmd: 'cdot', labelHtml: '$\\cdot$' },
-                            { kind: 'cmd', cmd: 'pm', labelHtml: '$\\pm$' },
-                            { kind: 'cmd', cmd: 'approx', labelHtml: '$\\approx$' },
-                            { kind: 'cmd', cmd: 'neq', labelHtml: '$\\neq$' },
-                            { kind: 'cmd', cmd: 'le', labelHtml: '$\\le$' },
-                            { kind: 'cmd', cmd: 'ge', labelHtml: '$\\ge$' },
-                            { kind: 'cmd', cmd: 'infty', labelHtml: '$\\infty$' },
-                        ],
-                    },
-                    {
-                        title: '미적분 기호',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'int', labelHtml: '$\\int$' },
-                            { kind: 'cmd', cmd: 'oint', labelHtml: '$\\oint$' },
-                            { kind: 'cmd', cmd: 'sum', labelHtml: '$\\sum$' },
-                            { kind: 'cmd', cmd: 'prod', labelHtml: '$\\prod$' },
-                            { kind: 'cmd', cmd: 'partial', labelHtml: '$\\partial$' },
-                            { kind: 'cmd', cmd: 'nabla', labelHtml: '$\\nabla$' },
-                        ],
-                    },
-                ],
-            },
-            functions: {
-                layout: 'groups',
-                groups: [
-                    {
-                        title: '삼각함수',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'sin', cls: 'text-xs', labelHtml: '$\\sin$' },
-                            { kind: 'cmd', cmd: 'cos', cls: 'text-xs', labelHtml: '$\\cos$' },
-                            { kind: 'cmd', cmd: 'tan', cls: 'text-xs', labelHtml: '$\\tan$' },
-                            { kind: 'cmd', cmd: 'csc', cls: 'text-xs', labelHtml: '$\\csc$' },
-                            { kind: 'cmd', cmd: 'sec', cls: 'text-xs', labelHtml: '$\\sec$' },
-                            { kind: 'cmd', cmd: 'cot', cls: 'text-xs', labelHtml: '$\\cot$' },
-                        ],
-                    },
-                    {
-                        title: '역삼각함수',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'arcsin', cls: 'text-xs px-2', labelHtml: '$\\arcsin$' },
-                            { kind: 'cmd', cmd: 'arccos', cls: 'text-xs px-2', labelHtml: '$\\arccos$' },
-                            { kind: 'cmd', cmd: 'arctan', cls: 'text-xs px-2', labelHtml: '$\\arctan$' },
-                        ],
-                    },
-                    {
-                        title: '쌍곡선함수',
-                        groupClass: 'flex flex-wrap gap-1 mb-2',
-                        buttons: [
-                            { kind: 'cmd', cmd: 'sinh', cls: 'text-xs', labelHtml: '$\\sinh$' },
-                            { kind: 'cmd', cmd: 'cosh', cls: 'text-xs', labelHtml: '$\\cosh$' },
-                            { kind: 'cmd', cmd: 'tanh', cls: 'text-xs', labelHtml: '$\\tanh$' },
-                        ],
-                    },
-                    {
-                        title: '로그/지수',
-                        groupClass: 'flex flex-wrap gap-1',
-                        buttons: [
-                            { kind: 'tpl', tpl: '\\log_{|}', cls: 'text-xs', labelHtml: '$\\log_{a}$' },
-                            { kind: 'cmd', cmd: 'ln', cls: 'text-xs', labelHtml: '$\\ln$' },
-                            { kind: 'cmd', cmd: 'exp', cls: 'text-xs', labelHtml: '$\\exp$' },
-                        ],
-                    },
-                ],
-            },
-        };
-
-        function renderToolbarTab(tabName) {
-    const def = TOOLBAR_DEF[tabName];
-    const root = document.getElementById('toolbar-' + tabName);
-    if (!def || !root) return;
-
-    // Normalize root classes (keep hidden state, drop tab-specific flex/gap differences)
-    const wasHidden = root.classList.contains('hidden');
-    root.className = 'toolbar-content' + (wasHidden ? ' hidden' : '');
-
-    root.innerHTML = '';
-    const frag = document.createDocumentFragment();
-
-    if (def.layout === 'inline') {
-        // Stream items, but group buttons into flex-wrapping rows so divider/label spacing is uniform.
-        let currentButtons = null;
-
-        const ensureButtonsRow = () => {
-            if (currentButtons) return;
-            currentButtons = document.createElement('div');
-            currentButtons.className = 'tb-buttons';
-            frag.appendChild(currentButtons);
-        };
-
-        (def.items || []).forEach(item => {
-            if (item.kind === 'label') {
-                frag.appendChild(mkInlineLabel(item.text || ''));
-                currentButtons = null;
-            } else if (item.kind === 'divider') {
-                frag.appendChild(mkInlineDivider());
-                currentButtons = null;
-            } else {
-                ensureButtonsRow();
-                currentButtons.appendChild(makeToolbarButton(item));
-            }
-        });
-
-    } else if (def.layout === 'groups') {
-    // Render subsection blocks in a 2-column grid for a more compact layout.
-    const grid = document.createElement('div');
-    grid.className = 'tb-grid';
-
-    (def.groups || []).forEach((g) => {
-        const section = document.createElement('div');
-        section.className = 'tb-section';
-
-        const label = document.createElement('div');
-        label.className = 'tb-label';
-        label.textContent = g.title || '';
-        section.appendChild(label);
-
-        const buttons = document.createElement('div');
-        buttons.className = g.groupClass || 'tb-buttons';
-        (g.buttons || []).forEach(btnCfg => {
-            buttons.appendChild(makeToolbarButton(btnCfg));
-        });
-        section.appendChild(buttons);
-
-        grid.appendChild(section);
-    });
-
-    frag.appendChild(grid);
-    }
-
-    root.appendChild(frag);
-}
-
-        function renderAllToolbars() {
-            renderToolbarTab('basic');
-            renderToolbarTab('greek');
-            renderToolbarTab('fonts');
-            renderToolbarTab('operators');
-            renderToolbarTab('functions');
         }
 
 
@@ -405,8 +69,39 @@ function mkInlineDivider() {
             input.dispatchEvent(new Event('input', { bubbles: true }));
         }
 
+        function _isEscapedAtIndex(text, idx) {
+            let slashCount = 0;
+            for (let i = idx - 1; i >= 0; i--) {
+                if (text[i] !== '\\') break;
+                slashCount += 1;
+            }
+            return (slashCount % 2) === 1;
+        }
+
+        function _getMathModeAtPosition(text, pos) {
+            const raw = String(text || '');
+            const limit = Math.max(0, Math.min(raw.length, Number.isFinite(pos) ? pos : 0));
+            let mathMode = null; // null | '$' | '$$'
+            for (let i = 0; i < limit; i++) {
+                const ch = raw[i];
+                if (ch !== '$' || _isEscapedAtIndex(raw, i)) continue;
+                const next = raw[i + 1] || '';
+                const canUseDouble = (next === '$' && !_isEscapedAtIndex(raw, i + 1) && mathMode !== '$');
+                if (canUseDouble) {
+                    mathMode = (mathMode === '$$') ? null : '$$';
+                    i += 1;
+                    continue;
+                }
+                mathMode = (mathMode === '$') ? null : '$';
+            }
+            return mathMode;
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
-            renderAllToolbars();
+            const toolbarUi = _getToolbarUiApi();
+            if (toolbarUi && typeof toolbarUi.initToolbar === 'function') {
+                toolbarUi.initToolbar();
+            }
 
             const createEmptyQuestion = () => ({
                 id: '',
@@ -442,6 +137,7 @@ function mkInlineDivider() {
                 textPreview: document.getElementById('text-preview'),
                 answerPreview: document.getElementById('answer-preview'),
                 validationErrors: document.getElementById('validation-errors'),
+                validationWarnings: document.getElementById('validation-warnings'),
                 newBtn: document.getElementById('new-btn'),
                 loadBtn: document.getElementById('load-btn'),
                 saveBtn: document.getElementById('save-btn'),
@@ -455,6 +151,7 @@ function mkInlineDivider() {
                 addQuestionBtn: document.getElementById('add-question'),
                 deleteQuestionBtn: document.getElementById('delete-question'),
                 focusIndicator: document.getElementById('focus-indicator'),
+                toolbarActionHint: document.getElementById('toolbar-action-hint'),
                 imageInput: document.getElementById('image-input'),
                 imageBox: document.getElementById('image-box'),
                 imageBoxPlaceholder: document.getElementById('image-box-placeholder'),
@@ -494,9 +191,196 @@ function mkInlineDivider() {
                 confirmCancelBtn: document.getElementById('confirm-cancel-btn'),
             };
 
+            const _getRandomExamPdflatexProfile = () => {
+                try {
+                    const compatApi = (typeof window !== 'undefined' && window.RandomExamCompat) ? window.RandomExamCompat : null;
+                    if (compatApi && typeof compatApi.getPdflatexCompatibilityProfile === 'function') {
+                        const profile = compatApi.getPdflatexCompatibilityProfile();
+                        if (profile && typeof profile === 'object') return profile;
+                    }
+                } catch (_) {
+                    // Use fallback profile below.
+                }
+                return {
+                    compilerCommand: 'latexmk -pdf -interaction=nonstopmode',
+                    engine: 'pdflatex',
+                    documentClass: '\\documentclass[b4paper,twocolumn]{article}',
+                    mathPackages: {
+                        amsmath: false,
+                        amssymb: false,
+                        amsfonts: false,
+                        mathtools: false
+                    }
+                };
+            };
+
+            const _buildPdflatexProfileHint = () => {
+                const profile = _getRandomExamPdflatexProfile();
+                const command = String(profile.compilerCommand || '').trim();
+                const engine = String(profile.engine || '').trim();
+                const mathPackages = (profile && typeof profile.mathPackages === 'object' && profile.mathPackages)
+                    ? profile.mathPackages
+                    : {};
+                const amsmathOn = !!mathPackages.amsmath;
+                const amssymbOn = !!mathPackages.amssymb;
+                const amsfontsOn = !!mathPackages.amsfonts;
+                const mathtoolsOn = !!mathPackages.mathtools;
+                const amsList = [];
+                if (amsmathOn) amsList.push('amsmath');
+                if (amssymbOn) amsList.push('amssymb');
+                if (amsfontsOn) amsList.push('amsfonts');
+                if (mathtoolsOn) amsList.push('mathtools');
+                const amsSummary = amsList.length > 0
+                    ? `${amsList.join(', ')} 포함`
+                    : 'amsmath/amssymb/amsfonts/mathtools 미포함';
+                return `기준 환경: ${command}${engine ? ` (${engine})` : ''} | AMS 수식 패키지: ${amsSummary}`;
+            };
+
+            const _evaluateToolbarButtonPolicy = (btn, inputId) => {
+                if (!btn || inputId !== 'answer') return { allowed: true, reason: '' };
+                try {
+                    const compatApi = (typeof window !== 'undefined' && window.RandomExamCompat) ? window.RandomExamCompat : null;
+                    if (compatApi && typeof compatApi.evaluateAnswerToolbarAction === 'function') {
+                        const policy = compatApi.evaluateAnswerToolbarAction({
+                            action: String(btn.dataset.action || ''),
+                            cmd: String(btn.dataset.cmd || ''),
+                            tpl: String(btn.dataset.tpl || ''),
+                            prefix: String(btn.dataset.prefix || ''),
+                            suffix: String(btn.dataset.suffix || ''),
+                            policyKey: String(btn.dataset.policyKey || '')
+                        });
+                        if (policy && typeof policy === 'object' && typeof policy.allowed === 'boolean') {
+                            return {
+                                allowed: !!policy.allowed,
+                                reason: String(policy.reason || '')
+                            };
+                        }
+                    }
+                } catch (_) {
+                    // Fall through to permissive default.
+                }
+                return { allowed: true, reason: '' };
+            };
+
+            const _syncAnswerOnlyToolbarTabs = (targetInputId) => {
+                const configApi = _getToolbarConfigApi();
+                const tabNames = Array.isArray(configApi?.TOOLBAR_TABS) && configApi.TOOLBAR_TABS.length > 0
+                    ? Array.from(configApi.TOOLBAR_TABS)
+                    : ['basic', 'greek', 'fonts', 'operators', 'functions', 'functionParen'];
+                const tabMap = new Map();
+                tabNames.forEach((tabName) => {
+                    tabMap.set(tabName, {
+                        btn: document.getElementById(`toolbar-tab-${tabName}`),
+                        panel: document.getElementById(`toolbar-${tabName}`)
+                    });
+                });
+                if ([...tabMap.values()].some((item) => !item.btn || !item.panel)) return;
+
+                let visibleTabs = [];
+                if (configApi && typeof configApi.getVisibleTabsForInput === 'function') {
+                    const resolved = configApi.getVisibleTabsForInput(targetInputId);
+                    if (Array.isArray(resolved)) visibleTabs = resolved;
+                }
+                if (visibleTabs.length === 0) {
+                    visibleTabs = targetInputId === 'answer'
+                        ? ['basic', 'functionParen']
+                        : ['basic', 'greek', 'fonts', 'operators', 'functions'];
+                }
+                visibleTabs = visibleTabs.filter((tab) => tabMap.has(tab));
+                if (visibleTabs.length === 0) {
+                    visibleTabs = ['basic'].filter((tab) => tabMap.has(tab));
+                }
+                const visibleSet = new Set(visibleTabs);
+
+                const activeBtn = document.querySelector('.tab-btn.active[data-tab]');
+                const activeTab = activeBtn ? String(activeBtn.dataset.tab || '').trim() : '';
+
+                const showTab = (tabBtn, panel) => {
+                    tabBtn.classList.remove('hidden');
+                    tabBtn.removeAttribute('hidden');
+                    tabBtn.setAttribute('aria-hidden', 'false');
+                    const isActive = tabBtn.classList.contains('active') || tabBtn.getAttribute('aria-selected') === 'true';
+                    if (isActive) {
+                        panel.classList.remove('hidden');
+                        panel.removeAttribute('hidden');
+                        panel.setAttribute('aria-hidden', 'false');
+                    }
+                };
+                const hideTab = (tabBtn, panel) => {
+                    tabBtn.classList.remove('active');
+                    tabBtn.classList.add('hidden');
+                    tabBtn.setAttribute('hidden', '');
+                    tabBtn.setAttribute('aria-hidden', 'true');
+                    tabBtn.setAttribute('aria-selected', 'false');
+                    tabBtn.setAttribute('tabindex', '-1');
+                    panel.classList.add('hidden');
+                    panel.setAttribute('hidden', '');
+                    panel.setAttribute('aria-hidden', 'true');
+                };
+
+                tabNames.forEach((tabName) => {
+                    const item = tabMap.get(tabName);
+                    if (!item) return;
+                    if (visibleSet.has(tabName)) showTab(item.btn, item.panel);
+                    else hideTab(item.btn, item.panel);
+                });
+
+                if (!visibleSet.has(activeTab)) {
+                    const preferredTab = (configApi && typeof configApi.getPreferredTabForInput === 'function')
+                        ? configApi.getPreferredTabForInput(targetInputId)
+                        : (targetInputId === 'answer' ? 'functionParen' : 'functions');
+                    const fallbackTab = visibleSet.has(preferredTab) ? preferredTab : visibleTabs[0];
+                    if (fallbackTab) setActiveTab(fallbackTab);
+                }
+            };
+
+            const _setToolbarActionHint = (message = '') => {
+                if (!dom.toolbarActionHint) return;
+                const text = String(message || '').trim();
+                if (!text) {
+                    dom.toolbarActionHint.textContent = '';
+                    dom.toolbarActionHint.classList.add('hidden');
+                    return;
+                }
+                dom.toolbarActionHint.textContent = text;
+                dom.toolbarActionHint.classList.remove('hidden');
+            };
+
+            const _syncToolbarButtonAvailability = () => {
+                const targetInputId = toolbarState.lastFocusedInputId || 'text';
+                _syncAnswerOnlyToolbarTabs(targetInputId);
+                _setToolbarActionHint('');
+                document.querySelectorAll('.toolbar-content button[data-action]').forEach((btn) => {
+                    if (!btn || typeof btn !== 'object') return;
+                    const baseTitle = String(btn.dataset.baseTitle ?? btn.title ?? '');
+                    btn.dataset.baseTitle = baseTitle;
+
+                    const policy = _evaluateToolbarButtonPolicy(btn, targetInputId);
+                    const blocked = !policy.allowed;
+                    btn.dataset.blocked = blocked ? '1' : '0';
+                    btn.setAttribute('aria-disabled', blocked ? 'true' : 'false');
+                    btn.classList.toggle('opacity-40', blocked);
+                    btn.classList.toggle('cursor-not-allowed', blocked);
+
+                    if (blocked) {
+                        const reason = String(policy.reason || '현재 입력 대상에서 사용할 수 없습니다.');
+                        btn.dataset.blockedReason = reason;
+                        btn.title = baseTitle ? `${baseTitle} | ${reason}` : reason;
+                    } else {
+                        delete btn.dataset.blockedReason;
+                        btn.title = baseTitle;
+                    }
+                });
+            };
+
             // Tab click
             document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
+                btn.addEventListener('click', () => {
+                    setActiveTab(btn.dataset.tab);
+                });
+            });
+            document.addEventListener('toolbar:tabchange', () => {
+                _syncToolbarButtonAvailability();
             });
 
             // === Unified modal dialog (confirm + alert replacement) ===
@@ -659,17 +543,47 @@ function mkInlineDivider() {
             const updateFocus = (e) => {
                 toolbarState.lastFocusedInputId = e.target.id;
                 if (dom.focusIndicator) {
-                    dom.focusIndicator.textContent = `입력 대상: ${e.target.id === 'text' ? '지문' : '정답식'}`;
+                    const isTextMode = e.target.id === 'text';
+                    const modeLabel = isTextMode
+                        ? '지문'
+                        : '정답식';
+                    dom.focusIndicator.classList.toggle('mode-text', isTextMode);
+                    dom.focusIndicator.classList.toggle('mode-answer', !isTextMode);
+                    dom.focusIndicator.textContent = `입력 대상: ${modeLabel}`;
                 }
+                _syncToolbarButtonAvailability();
             };
             dom.text.addEventListener('focus', updateFocus);
             dom.answer.addEventListener('focus', updateFocus);
+            _syncToolbarButtonAvailability();
 
             // Toolbar click (event delegation)
             document.querySelectorAll('.toolbar-content').forEach(container => {
+                container.addEventListener('focusin', (e) => {
+                    const btn = e.target.closest('button[data-action]');
+                    if (!btn) return;
+                    const blocked = btn.getAttribute('aria-disabled') === 'true' || btn.dataset.blocked === '1';
+                    if (!blocked) {
+                        _setToolbarActionHint('');
+                        return;
+                    }
+                    const reason = String(btn.dataset.blockedReason || '현재 입력 대상에서 사용할 수 없습니다.');
+                    _setToolbarActionHint(reason);
+                });
+                container.addEventListener('focusout', (e) => {
+                    const next = e.relatedTarget;
+                    if (next && typeof next.closest === 'function' && next.closest('.toolbar-content')) return;
+                    _setToolbarActionHint('');
+                });
                 container.addEventListener('click', (e) => {
                     const btn = e.target.closest('button');
                     if (!btn) return;
+                    const blocked = btn.getAttribute('aria-disabled') === 'true' || btn.dataset.blocked === '1';
+                    if (blocked) {
+                        const reason = String(btn.dataset.blockedReason || '현재 입력 대상에서 사용할 수 없습니다.');
+                        _setToolbarActionHint(reason);
+                        return;
+                    }
 
                     const targetInput = document.getElementById(toolbarState.lastFocusedInputId);
                     if (!targetInput) return;
@@ -678,9 +592,24 @@ function mkInlineDivider() {
 
                     // --- New toolbar actions (data-driven) ---
                     if (action === 'wrap') {
-                        const prefix = btn.dataset.prefix ?? '';
-                        const suffix = btn.dataset.suffix ?? '';
+                        let prefix = btn.dataset.prefix ?? '';
+                        let suffix = btn.dataset.suffix ?? '';
                         const empty = targetInput.selectionStart === targetInput.selectionEnd;
+                        const smartInsertMode = String(btn.dataset.smartInsert || '').trim();
+                        if (smartInsertMode === 'var') {
+                            const text = String(targetInput.value || '');
+                            const startPos = Number.isFinite(targetInput.selectionStart) ? targetInput.selectionStart : 0;
+                            const endPos = Number.isFinite(targetInput.selectionEnd) ? targetInput.selectionEnd : startPos;
+                            const outsideMathAtStart = _getMathModeAtPosition(text, startPos) === null;
+                            const outsideMathAtEnd = _getMathModeAtPosition(text, endPos) === null;
+                            if (outsideMathAtStart && outsideMathAtEnd) {
+                                prefix = '$*';
+                                suffix = '*$';
+                            } else {
+                                prefix = '*';
+                                suffix = '*';
+                            }
+                        }
 
                         const cursorMode = empty
                             ? (btn.dataset.cursorEmpty || 'inside')
@@ -958,8 +887,8 @@ function _insertImplicitMultiplication(expr) {
 
 function latexToMathjs(latex) {
     let expr = _latexToMathjsCore(latex);
-    expr = expr.replace(/\s+/g, '');
     expr = _insertImplicitMultiplication(expr);
+    expr = expr.replace(/\s+/g, '');
 
         if (/[{}\\]/.test(expr)) {
             throw new Error("변환 규칙에 맞지 않는 LaTeX가 포함되어 있습니다. (지원: \\frac, \\sqrt, \\sin/\\cos/\\tan, \\sinh/\\cosh/\\tanh, \\arcsin/\\arccos/\\arctan, \\ln/\\log, \\log_{a}(x), \\exp, 거듭제곱 ^ )");
@@ -975,10 +904,10 @@ function latexToMathjs(latex) {
 }
 
 function extractSymbolsFromMathjs(expr) {
-    const node = math.parse(expr);
+    const node = math.parse(String(expr || ''));
     const symbols = new Set();
     node.traverse((n) => {
-        if (n && n.isSymbolNode) symbols.add(n.name);
+        if (n && n.isSymbolNode) symbols.add(String(n.name || ''));
     });
 
     const builtins = new Set(['pi', 'e', 'i', 'Infinity', 'NaN', 'true', 'false']);
@@ -989,16 +918,178 @@ function extractSymbolsFromMathjs(expr) {
         'min','max','pow'
     ]);
 
-    return [...symbols].filter(s => !builtins.has(s) && !funcs.has(s)).sort();
+    return [...symbols]
+        .filter((s) => s && !builtins.has(s) && !funcs.has(s))
+        .sort();
 }
 
-function unknownSymbolsInAnswer(question) {
-    const expr = latexToMathjs(question.answer || '');
-    const used = extractSymbolsFromMathjs(expr);
-    const defined = new Set((question.variables || []).map(v => (v.name || '').trim()).filter(Boolean));
-    const unknown = used.filter(s => !defined.has(s));
-    return { expr, used, unknown };
-}
+const _getRandomExamCompatHost = () => {
+    if (typeof window !== 'undefined' && window) return window;
+    if (typeof globalThis !== 'undefined' && globalThis) return globalThis;
+    return null;
+};
+
+const _getRandomExamCompatApi = () => {
+    const host = _getRandomExamCompatHost();
+    if (!host) return null;
+    const api = host.RandomExamCompat;
+    return (api && typeof api === 'object') ? api : null;
+};
+
+const _getRandomExamCompatCache = () => {
+    const host = _getRandomExamCompatHost();
+    if (!host) return null;
+    if (host.__randomExamCompatDiagnosticsCache instanceof Map) {
+        return host.__randomExamCompatDiagnosticsCache;
+    }
+    const created = new Map();
+    host.__randomExamCompatDiagnosticsCache = created;
+    return created;
+};
+
+const _buildRandomExamCompatCacheKey = (question) => {
+    const vars = Array.isArray(question?.variables)
+        ? question.variables.map((v) => `${v?.name ?? ''}\u0001${v?.min ?? ''}\u0001${v?.max ?? ''}`).join('\u0002')
+        : '';
+    return `${question?.id ?? ''}\u0000${question?.text ?? ''}\u0000${question?.answer ?? ''}\u0000${question?.points ?? ''}\u0000${vars}`;
+};
+
+const _getRandomExamCompatCacheSlot = (index) => {
+    const idx = Number(index);
+    if (Number.isInteger(idx) && idx >= 0) return `q:${idx}`;
+    return 'q:unknown';
+};
+
+const _normalizeRandomExamCompatDiagnostics = (raw) => {
+    const src = (raw && typeof raw === 'object') ? raw : {};
+    return {
+        errors: Array.isArray(src.errors) ? src.errors.filter(msg => typeof msg === 'string' && msg) : [],
+        warnings: Array.isArray(src.warnings) ? src.warnings.filter(msg => typeof msg === 'string' && msg) : [],
+        quickFixes: Array.isArray(src.quickFixes) ? src.quickFixes.filter(item => item && typeof item === 'object') : []
+    };
+};
+
+const _buildRandomExamCompatRuntimeErrorMessage = (index, detail) => {
+    const questionLabel = `${index + 1}번 문항`;
+    const tail = detail ? ` (${detail})` : '';
+    return `[${questionLabel}] random-exam-generator 호환성: 호환성 모듈을 불러오지 못해 검사를 수행할 수 없습니다${tail}. 페이지를 새로고침하고 스크립트 로드를 확인하세요.`;
+};
+
+const _buildRandomExamCompatRuntimeDiag = (index, detail) => ({
+    errors: [_buildRandomExamCompatRuntimeErrorMessage(index, detail)],
+    warnings: [],
+    quickFixes: []
+});
+
+const _computeRandomExamCompatibilityDiagnostics = (question, index) => {
+    const compatApi = _getRandomExamCompatApi();
+    if (compatApi &&
+        typeof compatApi.diagnoseTextCompileCompatibility === 'function' &&
+        typeof compatApi.diagnoseAnswerParserCompatibility === 'function') {
+        const textDiag = _normalizeRandomExamCompatDiagnostics(
+            compatApi.diagnoseTextCompileCompatibility(question, index, extractVariables)
+        );
+        const answerDiag = _normalizeRandomExamCompatDiagnostics(
+            compatApi.diagnoseAnswerParserCompatibility(question, index, extractVariables)
+        );
+        return {
+            errors: [...textDiag.errors, ...answerDiag.errors],
+            warnings: [...textDiag.warnings, ...answerDiag.warnings],
+            quickFixes: [...textDiag.quickFixes, ...answerDiag.quickFixes]
+        };
+    }
+    if (compatApi && typeof compatApi.diagnoseQuestionCompatibility === 'function') {
+        return _normalizeRandomExamCompatDiagnostics(
+            compatApi.diagnoseQuestionCompatibility(question, index, extractVariables)
+        );
+    }
+    if (compatApi && typeof compatApi.validateQuestionCompatibility === 'function') {
+        const errors = compatApi.validateQuestionCompatibility(question, index, extractVariables);
+        return {
+            errors: Array.isArray(errors) ? errors.filter(msg => typeof msg === 'string' && msg) : [],
+            warnings: [],
+            quickFixes: []
+        };
+    }
+    return _buildRandomExamCompatRuntimeDiag(index, '필수 API 누락');
+};
+
+const getRandomExamCompatibilityDiagnostics = (question, index) => {
+    const cache = _getRandomExamCompatCache();
+    const cacheKey = _buildRandomExamCompatCacheKey(question);
+    const cacheSlot = _getRandomExamCompatCacheSlot(index);
+    if (cache && cache.has(cacheSlot)) {
+        const cached = cache.get(cacheSlot);
+        if (cached && typeof cached === 'object' && cached.key === cacheKey) {
+            return _normalizeRandomExamCompatDiagnostics(cached.diag);
+        }
+    }
+
+    try {
+        const diag = _normalizeRandomExamCompatDiagnostics(
+            _computeRandomExamCompatibilityDiagnostics(question, index)
+        );
+        if (cache) cache.set(cacheSlot, { key: cacheKey, diag });
+        return diag;
+    } catch (err) {
+        const detail = String(err?.message || err || '').trim();
+        const diag = _buildRandomExamCompatRuntimeDiag(index, detail || '실행 오류');
+        if (cache) cache.set(cacheSlot, { key: cacheKey, diag });
+        return diag;
+    }
+};
+
+const validateRandomExamCompatibility = (question, index) => {
+    const diag = getRandomExamCompatibilityDiagnostics(question, index);
+    return Array.isArray(diag?.errors) ? diag.errors : [];
+};
+
+const applyRandomExamCompatQuickFix = (question, quickFix) => {
+    if (!question || typeof question !== 'object') return false;
+    const fix = (quickFix && typeof quickFix === 'object') ? quickFix : null;
+    if (!fix || (
+        fix.action !== 'replace_greek_unicode' &&
+        fix.action !== 'escape_text_special_chars' &&
+        fix.action !== 'replace_text_unicode_symbols' &&
+        fix.action !== 'normalize_text_unicode' &&
+        fix.action !== 'wrap_math_only_text_commands' &&
+        fix.action !== 'replace_unicode_supsub'
+    )) return false;
+
+    const field = (fix.field === 'answer') ? 'answer' : 'text';
+    const compatApi = (typeof window !== 'undefined' && window.RandomExamCompat) ? window.RandomExamCompat : null;
+
+    const original = String(question[field] || '');
+    let replacer = null;
+    if (fix.action === 'replace_greek_unicode') {
+        if (!compatApi || typeof compatApi.replaceGreekUnicodeWithLatex !== 'function') return false;
+        replacer = (field === 'text' && typeof compatApi.replaceGreekUnicodeWithLatexInText === 'function')
+            ? compatApi.replaceGreekUnicodeWithLatexInText
+            : compatApi.replaceGreekUnicodeWithLatex;
+    } else if (fix.action === 'escape_text_special_chars') {
+        if (!compatApi || typeof compatApi.escapeTextLatexSpecialChars !== 'function') return false;
+        replacer = compatApi.escapeTextLatexSpecialChars;
+    } else if (fix.action === 'replace_text_unicode_symbols') {
+        if (!compatApi || typeof compatApi.replaceTextUnicodeSymbolsWithLatexInText !== 'function') return false;
+        replacer = compatApi.replaceTextUnicodeSymbolsWithLatexInText;
+    } else if (fix.action === 'normalize_text_unicode') {
+        if (!compatApi || typeof compatApi.normalizeTextUnicode !== 'function') return false;
+        replacer = compatApi.normalizeTextUnicode;
+    } else if (fix.action === 'wrap_math_only_text_commands') {
+        if (!compatApi || typeof compatApi.wrapMathOnlyCommandsOutsideMathInText !== 'function') return false;
+        replacer = compatApi.wrapMathOnlyCommandsOutsideMathInText;
+    } else if (fix.action === 'replace_unicode_supsub') {
+        if (!compatApi || typeof compatApi.replaceUnicodeSupSubWithLatexInText !== 'function') return false;
+        replacer = compatApi.replaceUnicodeSupSubWithLatexInText;
+    }
+    if (typeof replacer !== 'function') return false;
+
+    const replaced = replacer(original);
+    if (!replaced || typeof replaced.text !== 'string' || replaced.text === original) return false;
+
+    question[field] = replaced.text;
+    return true;
+};
 
 function _mulberry32(seed) {
     let t = seed >>> 0;
@@ -1111,9 +1202,222 @@ function _scopeToChips(scope) {
 
             const getCurrentQuestion = () => state.questions[state.currentIndex];
 
-            const highlightVarsInKatex = (text) =>
-                _escapeHtml(text || '').replace(/\*([a-zA-Z_][a-zA-Z0-9_]*)\*/g,
-                    (match, varName) => `{\\color{#2563EB}\\mathbf{${varName}}}`);
+            const normalizeLatexTextForPreview = (text) => {
+                const raw = String(text || '');
+                if (!raw) return '';
+
+                const isEscapedAt = (idx) => {
+                    let slashCount = 0;
+                    for (let i = idx - 1; i >= 0; i--) {
+                        if (raw[i] !== '\\') break;
+                        slashCount += 1;
+                    }
+                    return (slashCount % 2) === 1;
+                };
+
+                const out = [];
+                let mathMode = null; // null | '$' | '$$'
+                for (let i = 0; i < raw.length; i++) {
+                    const ch = raw[i];
+
+                    if (ch === '$' && !isEscapedAt(i)) {
+                        const next = raw[i + 1] || '';
+                        const canUseDouble = (next === '$' && !isEscapedAt(i + 1) && mathMode !== '$');
+                        if (canUseDouble) {
+                            out.push('$$');
+                            mathMode = (mathMode === '$$') ? null : '$$';
+                            i += 1;
+                            continue;
+                        }
+                        out.push('$');
+                        mathMode = (mathMode === '$') ? null : '$';
+                        continue;
+                    }
+
+                    if (mathMode) {
+                        out.push(ch);
+                        continue;
+                    }
+
+                    if (ch !== '\\') {
+                        out.push(ch);
+                        continue;
+                    }
+
+                    const next = raw[i + 1] || '';
+                    if ('%&#_{}$'.includes(next)) {
+                        out.push(next);
+                        i += 1;
+                        continue;
+                    }
+                    if (next === '^' && raw[i + 2] === '{' && raw[i + 3] === '}') {
+                        out.push('^');
+                        i += 3;
+                        continue;
+                    }
+                    if (next === '~' && raw[i + 2] === '{' && raw[i + 3] === '}') {
+                        out.push('~');
+                        i += 3;
+                        continue;
+                    }
+
+                    // Keep unknown commands as-is so users can still spot/inspect them.
+                    out.push(ch);
+                }
+                return out.join('');
+            };
+
+            const highlightVarsInKatex = (text) => {
+                const normalized = normalizeLatexTextForPreview(text || '');
+
+                const isEscapedAt = (s, idx) => {
+                    let slashCount = 0;
+                    for (let i = idx - 1; i >= 0; i--) {
+                        if (s[i] !== '\\') break;
+                        slashCount += 1;
+                    }
+                    return (slashCount % 2) === 1;
+                };
+
+                const renderMathSegment = (segment) => {
+                    return _escapeHtml(segment).replace(/\*([a-zA-Z_][a-zA-Z0-9_]*)\*/g,
+                        (match, varName) => `{\\color{#2563EB}\\mathbf{${varName}}}`);
+                };
+
+                const renderLatexTextSegment = (segment) => {
+                    const findMatchingBrace = (s, startIdx) => {
+                        if (startIdx < 0 || startIdx >= s.length || s[startIdx] !== '{') return -1;
+                        let depth = 0;
+                        for (let i = startIdx; i < s.length; i++) {
+                            if (s[i] === '{') depth += 1;
+                            else if (s[i] === '}') depth -= 1;
+                            if (depth === 0) return i;
+                        }
+                        return -1;
+                    };
+
+                    const renderInner = (s) => {
+                        const formatCommands = [
+                            { cmd: '\\textbf', open: '<strong>', close: '</strong>' },
+                            { cmd: '\\textit', open: '<em>', close: '</em>' },
+                            { cmd: '\\emph', open: '<em>', close: '</em>' },
+                            { cmd: '\\underline', open: '<span class="underline">', close: '</span>' },
+                            { cmd: '\\texttt', open: '<code>', close: '</code>' },
+                        ];
+                        let out = '';
+
+                        for (let i = 0; i < s.length;) {
+                            if (s.startsWith('\\\\', i)) {
+                                out += '<br>';
+                                i += 2;
+                                continue;
+                            }
+                            if (s.startsWith('\\newline', i)) {
+                                out += '<br>';
+                                i += '\\newline'.length;
+                                continue;
+                            }
+                            if (s.startsWith('\\par', i)) {
+                                out += '<br><br>';
+                                i += '\\par'.length;
+                                continue;
+                            }
+                            if (s.startsWith('\\qquad', i)) {
+                                out += '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+                                i += '\\qquad'.length;
+                                continue;
+                            }
+                            if (s.startsWith('\\quad', i)) {
+                                out += '&nbsp;&nbsp;&nbsp;&nbsp;';
+                                i += '\\quad'.length;
+                                continue;
+                            }
+
+                            let handledFormat = false;
+                            for (const format of formatCommands) {
+                                const groupStart = i + format.cmd.length;
+                                if (!s.startsWith(`${format.cmd}{`, i)) continue;
+                                const groupEnd = findMatchingBrace(s, groupStart);
+                                if (groupEnd < 0) break;
+                                const inner = s.slice(groupStart + 1, groupEnd);
+                                out += `${format.open}${renderInner(inner)}${format.close}`;
+                                i = groupEnd + 1;
+                                handledFormat = true;
+                                break;
+                            }
+                            if (handledFormat) continue;
+
+                            const ch = s[i];
+                            if (ch === '~') {
+                                out += '&nbsp;';
+                                i += 1;
+                                continue;
+                            }
+                            if (ch === '\r' || ch === '\n') {
+                                const consumeLineBreak = (idx) => {
+                                    if (s[idx] === '\r' && s[idx + 1] === '\n') return idx + 2;
+                                    if (s[idx] === '\r' || s[idx] === '\n') return idx + 1;
+                                    return idx;
+                                };
+
+                                const firstBreakEnd = consumeLineBreak(i);
+                                let probe = firstBreakEnd;
+                                while (probe < s.length && (s[probe] === ' ' || s[probe] === '\t')) probe += 1;
+                                const hasSecondBreak = (probe < s.length) && (s[probe] === '\r' || s[probe] === '\n');
+
+                                if (hasSecondBreak) {
+                                    out += '<br><br>';
+                                    i = consumeLineBreak(probe);
+                                    continue;
+                                }
+
+                                // LaTeX plain text: single line break is treated like a space.
+                                out += ' ';
+                                i = firstBreakEnd;
+                                continue;
+                            }
+                            out += _escapeHtml(ch);
+                            i += 1;
+                        }
+                        return out;
+                    };
+
+                    return renderInner(segment);
+                };
+
+                const out = [];
+                let buf = '';
+                let mathMode = null; // null | '$' | '$$'
+
+                for (let i = 0; i < normalized.length; i++) {
+                    const ch = normalized[i];
+                    if (ch === '$' && !isEscapedAt(normalized, i)) {
+                        const next = normalized[i + 1] || '';
+                        const canUseDouble = (next === '$' && !isEscapedAt(normalized, i + 1) && mathMode !== '$');
+                        const delim = canUseDouble ? '$$' : '$';
+                        if (!mathMode) {
+                            if (buf) out.push(renderLatexTextSegment(buf));
+                            buf = delim;
+                            mathMode = delim;
+                        } else if (mathMode === delim) {
+                            buf += delim;
+                            out.push(renderMathSegment(buf));
+                            buf = '';
+                            mathMode = null;
+                        } else {
+                            buf += delim;
+                        }
+                        i += (delim.length - 1);
+                        continue;
+                    }
+                    buf += ch;
+                }
+
+                if (buf) {
+                    out.push(mathMode ? renderMathSegment(buf) : renderLatexTextSegment(buf));
+                }
+                return out.join('');
+            };
 
             const normalizeQuestionId = (id) => String(id ?? '').trim();
             const normalizeQuestionPoints = (value) => {
@@ -1243,17 +1547,6 @@ function _scopeToChips(scope) {
 
                 const definedVarNames = new Set((question.variables || []).map(v => v.name));
 
-                if (question.answer && (question.answer || '').trim()) {
-                    try {
-                        const { unknown } = unknownSymbolsInAnswer(question);
-                        if (unknown.length) {
-                            errors.push(prefix + `정답식에 변수 목록에 없는 기호가 포함되어 있습니다: ${unknown.join(', ')}`);
-                        }
-                    } catch (e) {
-                        errors.push(prefix + `정답식 변수 분석 실패: ${e.message || e}`);
-                    }
-                }
-
                 if ((varsInText.length > 0 || definedVarNames.size > 0) &&
                     (varsInText.length !== definedVarNames.size ||
                      !varsInText.every(v => definedVarNames.has(v)))) {
@@ -1275,6 +1568,8 @@ function _scopeToChips(scope) {
                         }
                     }
                 });
+
+                errors.push(...validateRandomExamCompatibility(question, index));
 
                 return errors;
             };
@@ -1304,11 +1599,67 @@ function _scopeToChips(scope) {
                 return allErrors;
             };
 
+            const collectGlobalCompatibilityWarnings = () => {
+                const byQuestion = [];
+                let totalWarnings = 0;
+                state.questions.forEach((q, idx) => {
+                    const diag = getRandomExamCompatibilityDiagnostics(q, idx);
+                    const warnings = Array.isArray(diag?.warnings)
+                        ? diag.warnings.filter(msg => typeof msg === 'string' && msg)
+                        : [];
+                    if (warnings.length <= 0) return;
+                    byQuestion.push({ index: idx, warnings });
+                    totalWarnings += warnings.length;
+                });
+                return {
+                    totalWarnings,
+                    questionCount: byQuestion.length,
+                    byQuestion
+                };
+            };
+
+            const buildGlobalCompatibilityWarningConfirmMessage = (summary) => {
+                const src = (summary && typeof summary === 'object') ? summary : {};
+                const totalWarnings = Number.isFinite(src.totalWarnings) ? Math.max(0, Math.trunc(src.totalWarnings)) : 0;
+                const byQuestion = Array.isArray(src.byQuestion) ? src.byQuestion : [];
+                const questionCount = Number.isFinite(src.questionCount) ? Math.max(0, Math.trunc(src.questionCount)) : byQuestion.length;
+                if (totalWarnings <= 0 || questionCount <= 0) return '';
+
+                const lines = [
+                    `random-exam-generator 경고 ${totalWarnings}건 (${questionCount}개 문항).`,
+                    '저장은 가능하며, 생성기 실행 전 확인하세요.',
+                    '',
+                    '[경고 문항 요약]'
+                ];
+
+                const previewCount = 8;
+                byQuestion.slice(0, previewCount).forEach(({ index, warnings }) => {
+                    const warningCount = Array.isArray(warnings) ? warnings.length : 0;
+                    lines.push(`- ${index + 1}번 문항: ${warningCount}건`);
+                });
+                if (questionCount > previewCount) {
+                    lines.push(`- 외 ${questionCount - previewCount}개 문항`);
+                }
+
+                lines.push('');
+                lines.push('그래도 저장할까요?');
+                return lines.join('\n');
+            };
+
             const _invalidQuestionIndexes = new Set();
             let _isValidationIndexDirty = true;
 
             const _resetValidationState = () => {
                 _validationCache.clear();
+                try {
+                    const host = (typeof window !== 'undefined' && window)
+                        ? window
+                        : ((typeof globalThis !== 'undefined') ? globalThis : null);
+                    const cache = host?.__randomExamCompatDiagnosticsCache;
+                    if (cache instanceof Map) cache.clear();
+                } catch (_) {
+                    // Ignore cache cleanup failures.
+                }
                 _invalidQuestionIndexes.clear();
                 _isValidationIndexDirty = true;
             };
@@ -1466,18 +1817,258 @@ function _scopeToChips(scope) {
                 _lastVarsKey = varsKey;
             };
 
+            const _compatQuickFixById = new Map();
+            const _globalWarningQuestionIndexes = [];
+            const _globalErrorQuestionIndexes = [];
+
+            const _syncGlobalWarningQuestionIndexes = (summary) => {
+                const byQuestion = Array.isArray(summary?.byQuestion) ? summary.byQuestion : [];
+                const indexes = byQuestion
+                    .map((item) => Number(item?.index))
+                    .filter((idx) => Number.isInteger(idx) && idx >= 0 && idx < state.questions.length);
+                const normalized = [...new Set(indexes)].sort((a, b) => a - b);
+                _globalWarningQuestionIndexes.length = 0;
+                _globalWarningQuestionIndexes.push(...normalized);
+            };
+
+            const _resolveWarningNavTarget = (direction = 'next') => {
+                const total = _globalWarningQuestionIndexes.length;
+                if (total <= 0) return -1;
+                const currentPos = _globalWarningQuestionIndexes.indexOf(state.currentIndex);
+                if (currentPos < 0) {
+                    return (direction === 'prev')
+                        ? _globalWarningQuestionIndexes[total - 1]
+                        : _globalWarningQuestionIndexes[0];
+                }
+                const delta = (direction === 'prev') ? -1 : 1;
+                const nextPos = (currentPos + delta + total) % total;
+                return _globalWarningQuestionIndexes[nextPos];
+            };
+
+            const _syncGlobalErrorQuestionIndexes = (indexesSource) => {
+                const iterable = (indexesSource && typeof indexesSource[Symbol.iterator] === 'function')
+                    ? indexesSource
+                    : [];
+                const normalized = [...new Set(
+                    [...iterable]
+                        .map((idx) => Number(idx))
+                        .filter((idx) => Number.isInteger(idx) && idx >= 0 && idx < state.questions.length)
+                )].sort((a, b) => a - b);
+                _globalErrorQuestionIndexes.length = 0;
+                _globalErrorQuestionIndexes.push(...normalized);
+            };
+
+            const _resolveErrorNavTarget = (direction = 'next') => {
+                const total = _globalErrorQuestionIndexes.length;
+                if (total <= 0) return -1;
+                const currentPos = _globalErrorQuestionIndexes.indexOf(state.currentIndex);
+                if (currentPos < 0) {
+                    return (direction === 'prev')
+                        ? _globalErrorQuestionIndexes[total - 1]
+                        : _globalErrorQuestionIndexes[0];
+                }
+                const delta = (direction === 'prev') ? -1 : 1;
+                const nextPos = (currentPos + delta + total) % total;
+                return _globalErrorQuestionIndexes[nextPos];
+            };
+
+            const _createWarningNavControls = (tone = 'amber') => {
+                const total = _globalWarningQuestionIndexes.length;
+                if (total <= 0) return null;
+
+                const isRed = tone === 'red';
+                const textClass = isRed ? 'text-red-800' : 'text-amber-900';
+                const btnClass = isRed
+                    ? 'rounded border border-red-300 bg-white px-2 py-0.5 text-xs text-red-700 hover:bg-red-50'
+                    : 'rounded border border-amber-300 bg-white px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-100';
+
+                const wrap = document.createElement('div');
+                wrap.className = `mt-3 flex flex-wrap items-center gap-2 ${textClass}`;
+
+                const prevBtn = document.createElement('button');
+                prevBtn.type = 'button';
+                prevBtn.dataset.warningNav = 'prev';
+                prevBtn.className = btnClass;
+                prevBtn.textContent = '이전 경고';
+
+                const nextBtn = document.createElement('button');
+                nextBtn.type = 'button';
+                nextBtn.dataset.warningNav = 'next';
+                nextBtn.className = btnClass;
+                nextBtn.textContent = '다음 경고';
+
+                const currentPos = _globalWarningQuestionIndexes.indexOf(state.currentIndex);
+                const status = document.createElement('span');
+                status.className = 'text-xs';
+                if (currentPos >= 0) {
+                    status.textContent = `${currentPos + 1}/${total}`;
+                }
+
+                const disableNav = total <= 1;
+                if (disableNav) {
+                    prevBtn.disabled = true;
+                    nextBtn.disabled = true;
+                    prevBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                    nextBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                }
+
+                wrap.appendChild(prevBtn);
+                wrap.appendChild(nextBtn);
+                if (currentPos >= 0) wrap.appendChild(status);
+                return wrap;
+            };
+
+            const _createErrorNavControls = () => {
+                const total = _globalErrorQuestionIndexes.length;
+                if (total <= 0) return null;
+
+                const wrap = document.createElement('div');
+                wrap.className = 'mt-3 flex flex-wrap items-center gap-2 text-red-800';
+
+                const prevBtn = document.createElement('button');
+                prevBtn.type = 'button';
+                prevBtn.dataset.errorNav = 'prev';
+                prevBtn.className = 'rounded border border-red-300 bg-white px-2 py-0.5 text-xs text-red-700 hover:bg-red-50';
+                prevBtn.textContent = '이전 오류';
+
+                const nextBtn = document.createElement('button');
+                nextBtn.type = 'button';
+                nextBtn.dataset.errorNav = 'next';
+                nextBtn.className = 'rounded border border-red-300 bg-white px-2 py-0.5 text-xs text-red-700 hover:bg-red-50';
+                nextBtn.textContent = '다음 오류';
+
+                const currentPos = _globalErrorQuestionIndexes.indexOf(state.currentIndex);
+                const status = document.createElement('span');
+                status.className = 'text-xs';
+                if (currentPos >= 0) {
+                    status.textContent = `${currentPos + 1}/${total}`;
+                }
+
+                const disableNav = total <= 1;
+                if (disableNav) {
+                    prevBtn.disabled = true;
+                    nextBtn.disabled = true;
+                    prevBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                    nextBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                }
+
+                wrap.appendChild(prevBtn);
+                wrap.appendChild(nextBtn);
+                if (currentPos >= 0) wrap.appendChild(status);
+                return wrap;
+            };
+
+            const _setValidationErrorTheme = () => {
+                dom.validationErrors.className = 'p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg';
+                if (typeof dom.validationErrors.setAttribute === 'function') {
+                    dom.validationErrors.setAttribute('role', 'alert');
+                    dom.validationErrors.setAttribute('aria-live', 'assertive');
+                    dom.validationErrors.setAttribute('aria-atomic', 'true');
+                }
+            };
+
+            const _setValidationWarningTheme = () => {
+                dom.validationErrors.className = 'p-4 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg';
+                if (typeof dom.validationErrors.setAttribute === 'function') {
+                    dom.validationErrors.setAttribute('role', 'status');
+                    dom.validationErrors.setAttribute('aria-live', 'polite');
+                    dom.validationErrors.setAttribute('aria-atomic', 'true');
+                }
+            };
+
+            const _clearValidationQuickFixes = () => {
+                _compatQuickFixById.clear();
+            };
+
+            const _clearDeferredWarningPanel = () => {
+                if (!dom.validationWarnings) return;
+                dom.validationWarnings.classList.add('hidden');
+                dom.validationWarnings.replaceChildren();
+            };
+
+            const _renderDeferredWarningPanel = (warningCount, questionCount) => {
+                if (!dom.validationWarnings) return;
+                const safeWarningCount = Number.isFinite(warningCount) ? Math.max(0, Math.trunc(warningCount)) : 0;
+                const safeQuestionCount = Number.isFinite(questionCount) ? Math.max(0, Math.trunc(questionCount)) : 0;
+                if (safeWarningCount <= 0 || safeQuestionCount <= 0) {
+                    _clearDeferredWarningPanel();
+                    return;
+                }
+                const line = document.createElement('div');
+                line.textContent = `- 다른 문항 경고 ${safeWarningCount}건 (${safeQuestionCount}개 문항, 오류 해결 후 확인 가능)`;
+                dom.validationWarnings.replaceChildren(line);
+                dom.validationWarnings.classList.remove('hidden');
+            };
+
+            // Current-question panel already has context, so hide redundant "[n번 문항]" prefix.
+            const _toCurrentPanelMessage = (msg) => String(msg || '').replace(/^\[\d+번 문항\]\s*/, '');
+
             const renderValidationErrors = (errors) => {
+                _clearValidationQuickFixes();
+                _setValidationErrorTheme();
                 const frag = document.createDocumentFragment();
+                const hasCompatIssue = Array.isArray(errors) && errors.some((msg) => String(msg || '').includes('random-exam-generator'));
+                if (hasCompatIssue) {
+                    const profileLine = document.createElement('div');
+                    profileLine.className = 'mb-2 text-[11px] text-red-800';
+                    profileLine.textContent = _buildPdflatexProfileHint();
+                    frag.appendChild(profileLine);
+                }
                 errors.forEach((msg) => {
                     const line = document.createElement('div');
-                    line.textContent = `- ${msg}`;
+                    line.textContent = `- ${_toCurrentPanelMessage(msg)}`;
                     frag.appendChild(line);
                 });
+                const errorNav = _createErrorNavControls();
+                if (errorNav) frag.appendChild(errorNav);
+                dom.validationErrors.replaceChildren(frag);
+            };
+
+            const renderValidationWarnings = (warnings, quickFixes = []) => {
+                _clearValidationQuickFixes();
+                _setValidationWarningTheme();
+                const frag = document.createDocumentFragment();
+
+                const profileLine = document.createElement('div');
+                profileLine.className = 'mb-2 text-[11px] text-amber-900';
+                profileLine.textContent = _buildPdflatexProfileHint();
+                frag.appendChild(profileLine);
+
+                warnings.forEach((msg) => {
+                    const line = document.createElement('div');
+                    line.textContent = `- ${_toCurrentPanelMessage(msg)}`;
+                    frag.appendChild(line);
+                });
+
+                const warningNav = _createWarningNavControls('amber');
+                if (warningNav) frag.appendChild(warningNav);
+
+                const fixList = Array.isArray(quickFixes) ? quickFixes : [];
+                if (fixList.length > 0) {
+                    const fixWrap = document.createElement('div');
+                    fixWrap.className = 'mt-3 flex flex-wrap gap-2';
+                    fixList.forEach((fix, idx) => {
+                        if (!fix || typeof fix !== 'object') return;
+                        const fallbackId = `${fix.action || 'fix'}:${fix.field || 'text'}:${idx}`;
+                        const fixId = String(fix.id || fallbackId);
+                        _compatQuickFixById.set(fixId, fix);
+
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.dataset.compatFixId = fixId;
+                        btn.className = 'rounded border border-amber-400 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100';
+                        btn.textContent = String(fix.label || '자동치환');
+                        fixWrap.appendChild(btn);
+                    });
+                    if (fixWrap.children.length > 0) {
+                        frag.appendChild(fixWrap);
+                    }
+                }
                 dom.validationErrors.replaceChildren(frag);
             };
 
             const _formatQuestionRef = (idx) => {
-                return `${idx + 1}번 문항`;
+                return `${idx + 1}번`;
             };
 
             const _buildGlobalValidationHint = (otherInvalidCount) => {
@@ -1487,6 +2078,8 @@ function _scopeToChips(scope) {
             };
 
             const renderGlobalValidationHint = (otherInvalidIndexes) => {
+                _clearValidationQuickFixes();
+                _setValidationErrorTheme();
                 const indexes = Array.isArray(otherInvalidIndexes)
                     ? otherInvalidIndexes.filter(i => Number.isInteger(i) && i >= 0 && i < state.questions.length).sort((a, b) => a - b)
                     : [];
@@ -1520,6 +2113,61 @@ function _scopeToChips(scope) {
                     }
                     dom.validationErrors.appendChild(jumpWrap);
                 }
+                const errorNav = _createErrorNavControls();
+                if (errorNav) dom.validationErrors.appendChild(errorNav);
+                dom.validationErrors.classList.remove('hidden');
+            };
+
+            const renderGlobalWarningHint = (summary) => {
+                _clearValidationQuickFixes();
+                _setValidationWarningTheme();
+
+                const src = (summary && typeof summary === 'object') ? summary : {};
+                const byQuestion = Array.isArray(src.byQuestion) ? src.byQuestion : [];
+                const questionCount = Number.isFinite(src.questionCount)
+                    ? Math.max(0, Math.trunc(src.questionCount))
+                    : byQuestion.length;
+                if (questionCount <= 0) {
+                    dom.validationErrors.classList.add('hidden');
+                    dom.validationErrors.replaceChildren();
+                    return;
+                }
+
+                const frag = document.createDocumentFragment();
+
+                const profileLine = document.createElement('div');
+                profileLine.className = 'mb-2 text-[11px] text-amber-900';
+                profileLine.textContent = _buildPdflatexProfileHint();
+                frag.appendChild(profileLine);
+
+                const line = document.createElement('div');
+                line.textContent = `- 다른 문항 ${questionCount}개에 호환성 경고가 있습니다.`;
+                frag.appendChild(line);
+
+                const jumpWrap = document.createElement('div');
+                jumpWrap.className = 'mt-2 flex flex-wrap gap-1';
+                byQuestion.slice(0, 8).forEach(({ index, warnings }) => {
+                    if (!Number.isInteger(index)) return;
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.dataset.gotoQuestion = String(index);
+                    btn.className = 'rounded border border-amber-300 bg-white px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-100';
+                    const count = Array.isArray(warnings) ? warnings.length : 0;
+                    btn.textContent = `${index + 1}번${count > 0 ? ` (${count})` : ''}`;
+                    jumpWrap.appendChild(btn);
+                });
+                if (questionCount > 8) {
+                    const more = document.createElement('span');
+                    more.className = 'px-1 text-xs text-amber-800';
+                    more.textContent = `+${questionCount - 8}개`;
+                    jumpWrap.appendChild(more);
+                }
+                if (jumpWrap.children.length > 0) frag.appendChild(jumpWrap);
+
+                const warningNav = _createWarningNavControls('amber');
+                if (warningNav) frag.appendChild(warningNav);
+
+                dom.validationErrors.replaceChildren(frag);
                 dom.validationErrors.classList.remove('hidden');
             };
 
@@ -1527,15 +2175,32 @@ function _scopeToChips(scope) {
             const updateJsonAndValidation = () => {
                 const current = getCurrentQuestion();
                 const currentErrors = validateQuestionCached(current, state.currentIndex);
+                const compatDiagnostics = getRandomExamCompatibilityDiagnostics(current, state.currentIndex);
+                const currentWarnings = Array.isArray(compatDiagnostics.warnings) ? compatDiagnostics.warnings : [];
+                const currentQuickFixes = Array.isArray(compatDiagnostics.quickFixes) ? compatDiagnostics.quickFixes : [];
+                const globalWarningSummary = collectGlobalCompatibilityWarnings();
+                const globalWarningByQuestion = Array.isArray(globalWarningSummary?.byQuestion) ? globalWarningSummary.byQuestion : [];
+                const deferredWarningByQuestion = globalWarningByQuestion.filter(({ index }) => (
+                    Number.isInteger(index) && index >= 0 && index < state.questions.length && index !== state.currentIndex
+                ));
+                const deferredWarningCount = deferredWarningByQuestion.reduce((sum, entry) => {
+                    const count = Array.isArray(entry?.warnings) ? entry.warnings.length : 0;
+                    return sum + count;
+                }, 0);
+                const deferredWarningQuestionCount = deferredWarningByQuestion.length;
+                _clearDeferredWarningPanel();
+                _syncGlobalWarningQuestionIndexes(globalWarningSummary);
                 if (_isValidationIndexDirty) {
                     _rebuildInvalidQuestionIndexes();
                 } else {
                     _syncInvalidQuestionForIndex(state.currentIndex);
                 }
+                _syncGlobalErrorQuestionIndexes(_invalidQuestionIndexes);
                 const invalidCount = _invalidQuestionIndexes.size;
                 dom.saveBtn.disabled = invalidCount > 0;
                 if (currentErrors.length > 0) {
                     renderValidationErrors(currentErrors);
+                    _renderDeferredWarningPanel(deferredWarningCount, deferredWarningQuestionCount);
                     dom.validationErrors.classList.remove('hidden');
                     return;
                 }
@@ -1547,7 +2212,16 @@ function _scopeToChips(scope) {
                     .sort((a, b) => a - b);
                 if (otherInvalidCount > 0) {
                     renderGlobalValidationHint(otherInvalidIndexes);
+                    _renderDeferredWarningPanel(deferredWarningCount, deferredWarningQuestionCount);
+                    dom.validationErrors.classList.remove('hidden');
+                    return;
+                } else if (currentWarnings.length > 0) {
+                    renderValidationWarnings(currentWarnings, currentQuickFixes);
+                    dom.validationErrors.classList.remove('hidden');
+                } else if (globalWarningSummary.questionCount > 0) {
+                    renderGlobalWarningHint(globalWarningSummary);
                 } else {
+                    _clearValidationQuickFixes();
                     dom.validationErrors.classList.add('hidden');
                     dom.validationErrors.replaceChildren();
                 }
@@ -2556,6 +3230,45 @@ if (dom.minmaxReportTable) {
 
                 if (dom.validationErrors) {
                     dom.validationErrors.addEventListener('click', (e) => {
+                        const fixBtn = e.target.closest('button[data-compat-fix-id]');
+                        if (fixBtn) {
+                            e.preventDefault();
+                            const fixId = String(fixBtn.dataset.compatFixId || '');
+                            const fix = _compatQuickFixById.get(fixId);
+                            if (!fix) return;
+                            const current = getCurrentQuestion();
+                            const changed = applyRandomExamCompatQuickFix(current, fix);
+                            if (!changed) return;
+                            updateUI();
+                            if ((fix.field === 'answer') && dom.answer) dom.answer.focus();
+                            else if (dom.text) dom.text.focus();
+                            return;
+                        }
+
+                        const warningNavBtn = e.target.closest('button[data-warning-nav]');
+                        if (warningNavBtn) {
+                            e.preventDefault();
+                            const direction = String(warningNavBtn.dataset.warningNav || '').trim() === 'prev' ? 'prev' : 'next';
+                            const targetIdx = _resolveWarningNavTarget(direction);
+                            if (!Number.isInteger(targetIdx) || targetIdx < 0 || targetIdx >= state.questions.length) return;
+                            state.currentIndex = targetIdx;
+                            updateUI();
+                            if (dom.id) dom.id.focus();
+                            return;
+                        }
+
+                        const errorNavBtn = e.target.closest('button[data-error-nav]');
+                        if (errorNavBtn) {
+                            e.preventDefault();
+                            const direction = String(errorNavBtn.dataset.errorNav || '').trim() === 'prev' ? 'prev' : 'next';
+                            const targetIdx = _resolveErrorNavTarget(direction);
+                            if (!Number.isInteger(targetIdx) || targetIdx < 0 || targetIdx >= state.questions.length) return;
+                            state.currentIndex = targetIdx;
+                            updateUI();
+                            if (dom.id) dom.id.focus();
+                            return;
+                        }
+
                         const btn = e.target.closest('button[data-goto-question]');
                         if (!btn) return;
                         e.preventDefault();
@@ -3766,6 +4479,29 @@ if (dom.minmaxReportTable) {
                         // Defensive guard for programmatic invocation; normal UX blocks click via disabled button.
                         updateJsonAndValidation();
                         return;
+                    }
+                    const warningSummary = collectGlobalCompatibilityWarnings();
+                    if (warningSummary.totalWarnings > 0) {
+                        const warningMessage = buildGlobalCompatibilityWarningConfirmMessage(warningSummary);
+                        const proceedSave = await showConfirm(warningMessage, {
+                            title: '호환성 경고',
+                            okText: '저장 계속',
+                            cancelText: '경고 확인'
+                        });
+                        if (!proceedSave) {
+                            const firstWarningIndex = Array.isArray(warningSummary.byQuestion) && warningSummary.byQuestion.length > 0
+                                ? Number(warningSummary.byQuestion[0]?.index)
+                                : -1;
+                            if (Number.isInteger(firstWarningIndex) &&
+                                firstWarningIndex >= 0 &&
+                                firstWarningIndex < state.questions.length) {
+                                state.currentIndex = firstWarningIndex;
+                                updateUI();
+                                return;
+                            }
+                            updateJsonAndValidation();
+                            return;
+                        }
                     }
                     _invalidQuestionIndexes.clear();
                     _isValidationIndexDirty = false;

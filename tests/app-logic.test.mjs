@@ -618,3 +618,37 @@ test('materializeImportQuestions resolves deferred zip images and reports skippe
   assert.equal('_importImageRef' in result.questions[1], false);
   assert.deepEqual(progress, ['1/2', '2/2']);
 });
+
+function loadMathModeFns() {
+  const fns = [
+    extractFunctionDeclaration(appSource, '_isEscapedAtIndex'),
+    extractFunctionDeclaration(appSource, '_getMathModeAtPosition'),
+  ];
+  const sandbox = {};
+  vm.createContext(sandbox);
+  const script = new vm.Script(`${fns.join('\n\n')}\n({ _isEscapedAtIndex, _getMathModeAtPosition });`);
+  return script.runInContext(sandbox);
+}
+
+test('_getMathModeAtPosition detects inline/display math by cursor position', () => {
+  const { _getMathModeAtPosition } = loadMathModeFns();
+
+  const inline = '앞 $a+b$ 뒤';
+  assert.equal(_getMathModeAtPosition(inline, inline.indexOf('a')), '$');
+  assert.equal(_getMathModeAtPosition(inline, inline.indexOf('뒤')), null);
+
+  const display = '앞 $$a+b$$ 뒤';
+  assert.equal(_getMathModeAtPosition(display, display.indexOf('a')), '$$');
+  assert.equal(_getMathModeAtPosition(display, display.indexOf('뒤')), null);
+});
+
+test('_getMathModeAtPosition ignores escaped dollar and handles unclosed delimiters', () => {
+  const { _getMathModeAtPosition } = loadMathModeFns();
+
+  const escaped = String.raw`가격은 \$5 이고 수식은 $x+y$`;
+  assert.equal(_getMathModeAtPosition(escaped, escaped.indexOf('5')), null);
+  assert.equal(_getMathModeAtPosition(escaped, escaped.indexOf('x')), '$');
+
+  const unclosed = '값 $a+b';
+  assert.equal(_getMathModeAtPosition(unclosed, unclosed.length), '$');
+});
