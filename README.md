@@ -32,8 +32,23 @@ node --test --test-isolation=none tests/app-logic.test.mjs tests/core-logic.test
 node --check app.js; node --test --test-isolation=none tests/app-logic.test.mjs tests/core-logic.test.mjs tests/ui-static.test.mjs
 ```
 
+## random-exam-generator 호환성 테스트 (별도)
+
+- 호환성 테스트는 외부 파서 의존성이 있어 `tests/compat/` 아래에서 분리 운영합니다.
+- 환경 변수 `RANDOM_EXAM_GENERATOR_PATH`에 생성기 레포 경로를 지정한 뒤 실행합니다.
+- 기준 PDF 환경은 생성기의 `latexmk -pdf` + `kotex` 프리앰블이므로, KaTeX 미리보기와 결과가 다를 수 있습니다.
+- 지문은 텍스트 문맥이 기본이라 `\alpha` 단독보다 `$\alpha$` 형태를 사용하세요(정답식 칸은 `$...$` 없이 수식만 입력).
+- 지문 변수 `*var*`는 미리보기에서 파란 굵은 강조를 안정적으로 보려면 `$...$` 또는 `$$...$$` 안에서 쓰는 것을 권장합니다. 예: `$*a*$`
+- 지문 텍스트에서는 `%`, `&`, `#`를 `\%`, `\&`, `\#`로 이스케이프하고, 수식 구분자 밖의 `_`, `^`, `~`도 `\_`, `\^{}`, `\~{}` 형태를 권장합니다.
+
+```powershell
+$env:RANDOM_EXAM_GENERATOR_PATH="C:\path\to\random-exam-generator"
+python tests/compat/random-exam-generator/run_compat.py
+```
+
 ## 참고
 
+- 사용자 가이드: `USER_GUIDE.md`
 - 수동 점검 항목: `MANUAL_TEST_CHECKLIST.md`
 - 서드파티 라이선스 고지: `THIRD_PARTY_NOTICES.md`
 
@@ -45,3 +60,21 @@ node --check app.js; node --test --test-isolation=none tests/app-logic.test.mjs 
 - 이미지가 동일하더라도 메타데이터가 바뀌면 이미지 스냅샷 연결 정보도 함께 갱신됩니다.
 - 구버전 자동저장 키를 발견하면 현재 스코프로 마이그레이션을 시도하며, 이미지 마이그레이션 실패 시에는 유실 방지를 위해 레거시 키/DB를 계속 사용합니다(성공 시 스코프로 전환).
 - `새로시작` 실행 시 `localStorage` 자동저장 데이터와 `IndexedDB` 이미지 스냅샷을 함께 초기화합니다.
+
+## 호환성 프로필 (pdflatex 기준)
+
+- 편집기의 고정 호환성 기준은 `COMPATIBILITY_PROFILE.md`를 따릅니다.
+- 기준 소스: random-exam-generator preamble + compile path.
+- 컴파일 경로: `latexmk -pdf -interaction=nonstopmode` (엔진: `pdflatex`).
+- AMS 수식 패키지 기준: `amsmath`, `amssymb`, `amsfonts`, `mathtools`는 현재 미포함으로 취급합니다.
+- 메시지 UX 정책: 오류/경고는 입력창 원문(사용자 입력) 기준으로 노출합니다.
+
+## 툴바 아키텍처
+
+- `toolbar-config.js`: 툴바 탭/그룹/버튼 정의.
+- `toolbar-ui.js`: 렌더링, 탭 활성화, 키보드 내비게이션.
+- `compat/shared.js`: 호환성 공통 상수/헬퍼.
+- `compat/text.js`: 지문 호환성 진단 + 지문 퀵픽스.
+- `compat/answer.js`: 정답식 파서 호환성 + 툴바 정책 규칙.
+- `random-exam-compat.js`: `window.RandomExamCompat` 퍼사드.
+- `app.js`: 모듈 호출 + 비활성화 상태/UI 동기화.
